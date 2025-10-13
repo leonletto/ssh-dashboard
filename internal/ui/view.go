@@ -12,11 +12,11 @@ func (m Model) View() string {
 	case ScreenHostList:
 		listView := m.list.View()
 		if len(m.failedHosts) > 0 {
-			failedNames := make([]string, 0, len(m.failedHosts))
-			for hostName := range m.failedHosts {
-				failedNames = append(failedNames, hostName)
+			failedDetails := make([]string, 0, len(m.failedHosts))
+			for hostName, err := range m.failedHosts {
+				failedDetails = append(failedDetails, fmt.Sprintf("%s (%v)", hostName, err))
 			}
-			warning := fmt.Sprintf("\n⚠ Failed to connect: %s", strings.Join(failedNames, ", "))
+			warning := fmt.Sprintf("\n⚠ Failed to connect: %s", strings.Join(failedDetails, ", "))
 			listView += lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Render(warning)
 		}
 		if len(m.selectedHosts) > 0 {

@@ -301,24 +301,29 @@ func NewSSHClient(host SSHHost) (*SSHClient, error) {
 
 	var authMethods []ssh.AuthMethod
 
-	agentAuth, agentErr := sshAgentAuth()
-	if agentErr == nil {
-		authMethods = append(authMethods, agentAuth)
-	} else {
-		if host.IdentityFile != "" {
-			if keyAuth, err := publicKeyAuth(host.IdentityFile); err == nil {
-				authMethods = append(authMethods, keyAuth)
-			}
+	// First, try the specific identity file from SSH config (highest priority)
+	if host.IdentityFile != "" {
+		if keyAuth, err := publicKeyAuth(host.IdentityFile); err == nil {
+			authMethods = append(authMethods, keyAuth)
 		}
+	}
 
-		home, err := os.UserHomeDir()
-		if err == nil {
-			defaultKeys := []string{
-				filepath.Join(home, ".ssh", "id_rsa"),
-				filepath.Join(home, ".ssh", "id_ed25519"),
-				filepath.Join(home, ".ssh", "id_ecdsa"),
-			}
-			for _, keyPath := range defaultKeys {
+	// Second, try SSH agent (if available)
+	if agentAuth, agentErr := sshAgentAuth(); agentErr == nil {
+		authMethods = append(authMethods, agentAuth)
+	}
+
+	// Finally, try default key files as fallback
+	home, err := os.UserHomeDir()
+	if err == nil {
+		defaultKeys := []string{
+			filepath.Join(home, ".ssh", "id_rsa"),
+			filepath.Join(home, ".ssh", "id_ed25519"),
+			filepath.Join(home, ".ssh", "id_ecdsa"),
+		}
+		for _, keyPath := range defaultKeys {
+			// Skip if this is the same as the identity file we already tried
+			if keyPath != host.IdentityFile {
 				if keyAuth, err := publicKeyAuth(keyPath); err == nil {
 					authMethods = append(authMethods, keyAuth)
 				}

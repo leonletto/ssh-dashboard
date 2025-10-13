@@ -138,6 +138,33 @@ func InitialModel(hosts []internal.SSHHost, updateInterval time.Duration) Model 
 	}
 }
 
+func InitialModelWithHost(host internal.SSHHost, updateInterval time.Duration) Model {
+	// Create a minimal list even though we won't show it
+	items := []list.Item{hostItem{host: host, selected: true}}
+	delegate := list.NewDefaultDelegate()
+	l := list.New(items, delegate, 0, 0)
+	l.SetShowStatusBar(false)
+	l.SetFilteringEnabled(false)
+
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+
+	return Model{
+		screen:         ScreenConnecting,
+		hosts:          []internal.SSHHost{host},
+		selectedHosts:  []internal.SSHHost{host},
+		currentHostIdx: 0,
+		list:           l,
+		spinner:        s,
+		clients:        make(map[string]*internal.SSHClient),
+		sysInfos:       make(map[string]*internal.SystemInfo),
+		lastUpdates:    make(map[string]time.Time),
+		failedHosts:    make(map[string]error),
+		updateInterval: updateInterval,
+	}
+}
+
 func (m Model) GetSSHOnExit() string {
 	return m.sshOnExit
 }
@@ -160,5 +187,8 @@ func (m *Model) updateListSelection() {
 }
 
 func (m Model) Init() tea.Cmd {
+	if m.screen == ScreenConnecting && len(m.selectedHosts) > 0 {
+		return tea.Batch(m.spinner.Tick, m.connectToHosts())
+	}
 	return m.spinner.Tick
 }

@@ -27,12 +27,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS]\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fmt.Fprintf(os.Stderr, "  -n, --interval float  Update interval in seconds (default: 5, or SSH_DASHBOARD_INTERVAL env var)\n")
+		fmt.Fprintf(os.Stderr, "  --host string         Connect directly to specified host from SSH config\n")
 		fmt.Fprintf(os.Stderr, "  -h, --help            Show this help message\n")
 	}
 
 	var updateIntervalVal float64
+	var hostName string
 	flag.Float64Var(&updateIntervalVal, "n", 0, "")
 	flag.Float64Var(&updateIntervalVal, "interval", 0, "")
+	flag.StringVar(&hostName, "host", "", "")
 	flag.Parse()
 	updateInterval := &updateIntervalVal
 
@@ -61,7 +64,27 @@ func main() {
 		os.Exit(1)
 	}
 
-	initialModel := ui.InitialModel(hosts, interval)
+	var initialModel ui.Model
+
+	// If --host is specified, find and connect directly to that host
+	if hostName != "" {
+		var selectedHost *internal.SSHHost
+		for _, host := range hosts {
+			if host.Name == hostName {
+				selectedHost = &host
+				break
+			}
+		}
+		if selectedHost == nil {
+			fmt.Fprintf(os.Stderr, "Host '%s' not found in SSH config\n", hostName)
+			os.Exit(1)
+		}
+
+		initialModel = ui.InitialModelWithHost(*selectedHost, interval)
+	} else {
+		initialModel = ui.InitialModel(hosts, interval)
+	}
+
 	p := tea.NewProgram(initialModel, tea.WithAltScreen())
 	finalModel, err := p.Run()
 	if err != nil {
