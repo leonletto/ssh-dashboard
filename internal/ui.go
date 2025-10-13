@@ -36,6 +36,9 @@ type Model struct {
 	err            error
 	width          int
 	height         int
+	gpuUtilHistory map[string][]float64
+	vramHistory    map[string][]float64
+	maxHistorySize int
 }
 
 type TickMsg time.Time
@@ -128,6 +131,9 @@ func InitialModel(hosts []SSHHost, updateInterval time.Duration) Model {
 		sysInfos:       make(map[string]*SystemInfo),
 		lastUpdates:    make(map[string]time.Time),
 		updateInterval: updateInterval,
+		gpuUtilHistory: make(map[string][]float64),
+		vramHistory:    make(map[string][]float64),
+		maxHistorySize: 50,
 	}
 }
 
@@ -252,6 +258,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sysInfos[msg.hostName] = msg.info
 		m.lastUpdates[msg.hostName] = time.Now()
 
+		m.updateGPUHistory()
+
 		if m.screen == ScreenConnecting && len(m.selectedHosts) > 0 {
 			firstHost := m.selectedHosts[0]
 			if m.clients[firstHost.Name] != nil && m.sysInfos[firstHost.Name] != nil {
@@ -261,7 +269,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case TickMsg:
-		// update every 10 seconds
+		m.updateGPUHistory()
 		return m, tea.Batch(m.gatherAllSysInfo(), m.tick())
 	}
 
@@ -309,7 +317,10 @@ func (m Model) View() string {
 			if len(m.selectedHosts) > 1 {
 				hostIndicator = fmt.Sprintf(" [%d/%d]", m.currentHostIdx+1, len(m.selectedHosts))
 			}
-			return renderDashboard(currentHost.Name+hostIndicator, sysInfo, m.updateInterval, lastUpdate, m.width, m.height, len(m.selectedHosts) > 1)
+
+			gpuUtilHist := m.gpuUtilHistory[currentHost.Name]
+			vramHist := m.vramHistory[currentHost.Name]
+			return renderDashboard(currentHost.Name+hostIndicator, sysInfo, m.updateInterval, lastUpdate, m.width, m.height, len(m.selectedHosts) > 1, gpuUtilHist, vramHist)
 		}
 		return m.renderLoading("Initializing...")
 
@@ -395,6 +406,46 @@ func (m Model) tick() tea.Cmd {
 	})
 }
 
+func (m *Model) updateGPUHistory() {
+	for _, host := range m.selectedHosts {
+		sysInfo := m.sysInfos[host.Name]
+		if sysInfo == nil || len(sysInfo.GPUs) == 0 {
+			continue
+		}
+
+		var totalVRAM, usedVRAM int
+		var totalUtil int
+		for _, gpu := range sysInfo.GPUs {
+			totalVRAM += gpu.VRAMTotal
+			usedVRAM += gpu.VRAMUsed
+			totalUtil += gpu.Utilization
+		}
+
+		vramPercent := 0.0
+		if totalVRAM > 0 {
+			vramPercent = (float64(usedVRAM) / float64(totalVRAM)) * 100
+		}
+		avgUtil := float64(totalUtil) / float64(len(sysInfo.GPUs))
+
+		if m.vramHistory[host.Name] == nil {
+			m.vramHistory[host.Name] = make([]float64, 0)
+		}
+		if m.gpuUtilHistory[host.Name] == nil {
+			m.gpuUtilHistory[host.Name] = make([]float64, 0)
+		}
+
+		m.vramHistory[host.Name] = append(m.vramHistory[host.Name], vramPercent)
+		m.gpuUtilHistory[host.Name] = append(m.gpuUtilHistory[host.Name], avgUtil)
+
+		if len(m.vramHistory[host.Name]) > m.maxHistorySize {
+			m.vramHistory[host.Name] = m.vramHistory[host.Name][1:]
+		}
+		if len(m.gpuUtilHistory[host.Name]) > m.maxHistorySize {
+			m.gpuUtilHistory[host.Name] = m.gpuUtilHistory[host.Name][1:]
+		}
+	}
+}
+
 var (
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -435,6 +486,66 @@ func renderProgressBar(percent float64, width int, color lipgloss.Color) string 
 		emptyStyle.Render(strings.Repeat("░", empty))
 
 	return bar
+}
+
+func renderSparkline(data []float64, width int, color lipgloss.Color) string {
+	if len(data) == 0 {
+		return strings.Repeat(" ", width)
+	}
+
+	sparkChars := []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
+
+	minVal := 0.0
+	maxVal := 100.0
+	valRange := maxVal - minVal
+
+	pointsPerChar := float64(len(data)) / float64(width)
+	if pointsPerChar < 1 {
+		pointsPerChar = 1
+	}
+
+	var result strings.Builder
+	style := lipgloss.NewStyle().Foreground(color)
+
+	for i := 0; i < width; i++ {
+		startIdx := int(float64(i) * pointsPerChar)
+		endIdx := int(float64(i+1) * pointsPerChar)
+		if endIdx > len(data) {
+			endIdx = len(data)
+		}
+		if startIdx >= len(data) {
+			result.WriteString(" ")
+			continue
+		}
+
+		sum := 0.0
+		count := 0
+		for j := startIdx; j < endIdx; j++ {
+			sum += data[j]
+			count++
+		}
+		avg := sum / float64(count)
+
+		normalized := (avg - minVal) / valRange
+		if normalized > 1 {
+			normalized = 1
+		}
+		if normalized < 0 {
+			normalized = 0
+		}
+
+		charIdx := int(normalized * float64(len(sparkChars)-1))
+		if charIdx >= len(sparkChars) {
+			charIdx = len(sparkChars) - 1
+		}
+		if charIdx < 0 {
+			charIdx = 0
+		}
+
+		result.WriteRune(sparkChars[charIdx])
+	}
+
+	return style.Render(result.String())
 }
 
 func (m Model) renderLoading(message string) string {
@@ -607,7 +718,7 @@ func (m Model) renderSingleHostOverview(host SSHHost) string {
 	return b.String()
 }
 
-func renderDashboard(hostName string, info *SystemInfo, updateInterval time.Duration, lastUpdate time.Time, width, height int, multiHost bool) string {
+func renderDashboard(hostName string, info *SystemInfo, updateInterval time.Duration, lastUpdate time.Time, width, height int, multiHost bool, gpuUtilHistory, vramHistory []float64) string {
 	var b strings.Builder
 
 	title := fmt.Sprintf("  System Dashboard - %s  ", hostName)
@@ -630,7 +741,7 @@ func renderDashboard(hostName string, info *SystemInfo, updateInterval time.Dura
 
 	if len(info.GPUs) > 1 {
 		b.WriteString("\n")
-		b.WriteString(renderAggregateGPUSection(info.GPUs))
+		b.WriteString(renderAggregateGPUSection(info.GPUs, gpuUtilHistory, vramHistory))
 	}
 
 	if len(info.GPUs) > 0 {
@@ -656,7 +767,7 @@ func renderCPUSection(cpu CPUInfo) string {
 	return headerStyle.Render("● CPU") + "  " + cpuInfo + "\n"
 }
 
-func renderAggregateGPUSection(gpus []GPUInfo) string {
+func renderAggregateGPUSection(gpus []GPUInfo, gpuUtilHistory, vramHistory []float64) string {
 	var b strings.Builder
 
 	var totalVRAM, usedVRAM int
@@ -682,18 +793,47 @@ func renderAggregateGPUSection(gpus []GPUInfo) string {
 	b.WriteString(headerStyle.Render("● Total GPU Pressure"))
 	b.WriteString("\n\n")
 
-	const fullBarWidth = 106
+	const barWidth = 50
+	const graphWidth = 50
 
+	// VRAM section
 	vramLabel := lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Render("VRAM")
-	b.WriteString(fmt.Sprintf("  %s %.1f/%.1f GB (%.1f%%) across %d GPUs\n", vramLabel, usedVRAMGB, totalVRAMGB, vramPercent, len(gpus)))
-	b.WriteString("  ")
-	b.WriteString(renderProgressBar(vramPercent, fullBarWidth, lipgloss.Color("39")))
-	b.WriteString("\n")
+	var vramLeft strings.Builder
+	vramLeft.WriteString(fmt.Sprintf("%s %.1f/%.1f GB (%.1f%%) across %d GPUs\n", vramLabel, usedVRAMGB, totalVRAMGB, vramPercent, len(gpus)))
+	vramBar := renderProgressBar(vramPercent, barWidth, lipgloss.Color("39"))
+	vramLeft.WriteString(vramBar)
 
-	utilLabel := lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Render("Util")
-	b.WriteString(fmt.Sprintf("  %s %.1f%% average\n", utilLabel, avgUtil))
+	var vramRight strings.Builder
+	if len(vramHistory) > 0 {
+		vramRight.WriteString("History\n")
+		vramRight.WriteString(renderSparkline(vramHistory, graphWidth, lipgloss.Color("39")))
+	} else {
+		vramRight.WriteString("\n")
+	}
+
+	vramRow := lipgloss.JoinHorizontal(lipgloss.Top, vramLeft.String(), "        ", vramRight.String())
 	b.WriteString("  ")
-	b.WriteString(renderProgressBar(avgUtil, fullBarWidth, lipgloss.Color("208")))
+	b.WriteString(vramRow)
+	b.WriteString("\n\n")
+
+	// Util section
+	utilLabel := lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Render("Util")
+	var utilLeft strings.Builder
+	utilLeft.WriteString(fmt.Sprintf("%s %.1f%% average\n", utilLabel, avgUtil))
+	utilBar := renderProgressBar(avgUtil, barWidth, lipgloss.Color("208"))
+	utilLeft.WriteString(utilBar)
+
+	var utilRight strings.Builder
+	if len(gpuUtilHistory) > 0 {
+		utilRight.WriteString("History\n")
+		utilRight.WriteString(renderSparkline(gpuUtilHistory, graphWidth, lipgloss.Color("208")))
+	} else {
+		utilRight.WriteString("\n")
+	}
+
+	utilRow := lipgloss.JoinHorizontal(lipgloss.Top, utilLeft.String(), "        ", utilRight.String())
+	b.WriteString("  ")
+	b.WriteString(utilRow)
 	b.WriteString("\n")
 
 	return b.String()
