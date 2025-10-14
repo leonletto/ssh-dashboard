@@ -26,22 +26,24 @@ func main() {
 
 	flag.Usage = func() {
 		// HACK: make it look like python's argparse
-		fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS]\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS] [HOST...]\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fmt.Fprintf(os.Stderr, "  -n, --interval float  Update interval in seconds (default: 5, or SSH_DASHBOARD_INTERVAL env var)\n")
-		fmt.Fprintf(os.Stderr, "  --host string         Connect directly to specified host from SSH config\n")
 		fmt.Fprintf(os.Stderr, "  -v, --version         Show version information\n")
 		fmt.Fprintf(os.Stderr, "  -h, --help            Show this help message\n")
+		fmt.Fprintf(os.Stderr, "\nArguments:\n")
+		fmt.Fprintf(os.Stderr, "  HOST...               One or more hostnames from SSH config to connect to directly\n")
+		fmt.Fprintf(os.Stderr, "                        Example: ssh-dashboard myHost myOtherHost\n")
 	}
 
 	var updateIntervalVal float64
-	var hostName string
 	flag.Float64Var(&updateIntervalVal, "n", 0, "")
 	flag.Float64Var(&updateIntervalVal, "interval", 0, "")
-	flag.StringVar(&hostName, "host", "", "")
 	flag.BoolVar(&showVersion, "v", false, "")
 	flag.BoolVar(&showVersion, "version", false, "")
 	flag.Parse()
+
+	requestedHosts := flag.Args()
 
 	if showVersion {
 		fmt.Printf("ssh-dashboard version %s\n", internal.FullVersion())
@@ -80,21 +82,24 @@ func main() {
 
 	var initialModel ui.Model
 
-	// If --host is specified, find and connect directly to that host
-	if hostName != "" {
-		var selectedHost *internal.SSHHost
+	if len(requestedHosts) > 0 {
+		var selectedHosts []internal.SSHHost
+		hostMap := make(map[string]internal.SSHHost)
+
 		for _, host := range hosts {
-			if host.Name == hostName {
-				selectedHost = &host
-				break
-			}
-		}
-		if selectedHost == nil {
-			fmt.Fprintf(os.Stderr, "Host '%s' not found in SSH config\n", hostName)
-			os.Exit(1)
+			hostMap[host.Name] = host
 		}
 
-		initialModel = ui.InitialModelWithHost(*selectedHost, interval)
+		for _, requestedName := range requestedHosts {
+			if host, found := hostMap[requestedName]; found {
+				selectedHosts = append(selectedHosts, host)
+			} else {
+				fmt.Fprintf(os.Stderr, "Host '%s' not found in SSH config\n", requestedName)
+				os.Exit(1)
+			}
+		}
+
+		initialModel = ui.InitialModelWithHosts(hosts, selectedHosts, interval)
 	} else {
 		initialModel = ui.InitialModel(hosts, interval)
 	}
