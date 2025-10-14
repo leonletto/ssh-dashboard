@@ -22,12 +22,15 @@ func validateInterval(seconds float64) time.Duration {
 }
 
 func main() {
+	var showVersion bool
+
 	flag.Usage = func() {
 		// HACK: make it look like python's argparse
 		fmt.Fprintf(os.Stderr, "Usage: %s [OPTIONS]\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fmt.Fprintf(os.Stderr, "  -n, --interval float  Update interval in seconds (default: 5, or SSH_DASHBOARD_INTERVAL env var)\n")
 		fmt.Fprintf(os.Stderr, "  --host string         Connect directly to specified host from SSH config\n")
+		fmt.Fprintf(os.Stderr, "  -v, --version         Show version information\n")
 		fmt.Fprintf(os.Stderr, "  -h, --help            Show this help message\n")
 	}
 
@@ -36,7 +39,18 @@ func main() {
 	flag.Float64Var(&updateIntervalVal, "n", 0, "")
 	flag.Float64Var(&updateIntervalVal, "interval", 0, "")
 	flag.StringVar(&hostName, "host", "", "")
+	flag.BoolVar(&showVersion, "v", false, "")
+	flag.BoolVar(&showVersion, "version", false, "")
 	flag.Parse()
+
+	if showVersion {
+		fmt.Printf("ssh-dashboard version %s\n", internal.FullVersion())
+		fmt.Printf("  git commit: %s\n", internal.GitCommit)
+		fmt.Printf("  build date: %s\n", internal.BuildDate)
+		fmt.Printf("  git tag:    %s\n", internal.GitTag)
+		os.Exit(0)
+	}
+
 	updateInterval := &updateIntervalVal
 
 	interval := 5 * time.Second

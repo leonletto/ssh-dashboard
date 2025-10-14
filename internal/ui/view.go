@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/alpindale/ssh-dashboard/internal"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -27,6 +28,8 @@ func (m Model) View() string {
 			footer := fmt.Sprintf("\nSelected (%d): %s", len(m.selectedHosts), strings.Join(selectedNames, ", "))
 			listView += lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Render(footer)
 		}
+		versionFooter := fmt.Sprintf("\nv%s", internal.ShortVersion())
+		listView += lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(versionFooter)
 		return listView
 
 	case ScreenConnecting:

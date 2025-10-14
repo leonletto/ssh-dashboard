@@ -36,7 +36,7 @@ func (m Model) renderConnectingProgress() string {
 	title := "  System Dashboard - Connecting  "
 	connectedCount := len(m.clients)
 	totalCount := len(m.selectedHosts)
-	subtitle := fmt.Sprintf("Connecting to %d host(s)... (%d/%d ready)", totalCount, connectedCount, totalCount)
+	subtitle := fmt.Sprintf("v%s | Connecting to %d host(s)... (%d/%d ready)", internal.ShortVersion(), totalCount, connectedCount, totalCount)
 
 	b.WriteString(titleStyle.Render(title))
 	b.WriteString("\n")
@@ -87,8 +87,8 @@ func (m Model) renderOverview() string {
 	var b strings.Builder
 
 	title := fmt.Sprintf("  Overview - All Hosts (%d)  ", len(m.selectedHosts))
-	subtitle := fmt.Sprintf("Last Updated: %s | Interval: %s | 't' per-host | 'c' add hosts | 'q' quit",
-		time.Now().Format("15:04:05"), formatInterval(m.updateInterval))
+	subtitle := fmt.Sprintf("v%s | Last Updated: %s | Interval: %s | 't' per-host | 'c' add hosts | 'q' quit",
+		internal.ShortVersion(), time.Now().Format("15:04:05"), formatInterval(m.updateInterval))
 
 	b.WriteString(titleStyle.Render(title))
 	b.WriteString("\n")
@@ -200,8 +200,8 @@ func renderDashboard(hostName string, info *internal.SystemInfo, updateInterval 
 	if multiHost {
 		navHint = " | 'n' next | 't' overview"
 	}
-	subtitle := fmt.Sprintf("Last Updated: %s | Interval: %s%s | 's' shell | 'c' add hosts | 'q' quit",
-		lastUpdate.Format("15:04:05"), formatInterval(updateInterval), navHint)
+	subtitle := fmt.Sprintf("v%s | Last Updated: %s | Interval: %s%s | 's' shell | 'c' add hosts | 'q' quit",
+		internal.ShortVersion(), lastUpdate.Format("15:04:05"), formatInterval(updateInterval), navHint)
 
 	b.WriteString(titleStyle.Render(title))
 	b.WriteString("\n")
